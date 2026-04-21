@@ -31,11 +31,41 @@ const ZONE_ALIASES: Record<string, WheelZoneName> = {
   注视: "注视",
 };
 
-const DEFAULT_SUGGESTIONS = [
-  "先选一个最想继续表达的分区，用 3 分钟补一层颜色或线条，让情绪再往前走一点。",
-  "把画面里最吸引你注意的一个元素写成一句话，看看它此刻想提醒你什么。",
-  "如果有留白分区，不急着填满，只需问问自己：这里是还没准备好，还是需要更多照顾。",
+const REAL_WORLD_ZONE_SUGGESTIONS: Record<WheelZoneName, string[]> = {
+  愿望: [
+    "给自己 5 分钟，写下现在最想靠近的一件小事，并补上一个今天就能开始的第一步。",
+  ],
+  温暖: [
+    "给自己安排一个温暖的小仪式，比如喝一杯热饮、抱抱自己，或给信任的人发一条问候。",
+  ],
+  希望: [
+    "在今天结束前记下一个让你觉得还可以继续往前走的小证据，把它留给今晚的自己。",
+  ],
+  恐惧: [
+    "先做 3 轮慢呼吸，再看看身边 5 样真实存在的东西，让身体先慢慢安定下来。",
+  ],
+  杂乱: [
+    "花 10 分钟整理一个很小的角落，或把脑海里最乱的 3 件事写下来，只做排序，不急着解决。",
+  ],
+  激动: [
+    "去走动 5 分钟、拉伸一下，或让自己喝点水，给这股能量一个温和的出口。",
+  ],
+  期待: [
+    "写下一周内最想尝试的一件小事，并把它放进一个具体的时间点里。",
+  ],
+  注视: [
+    "站在镜子前做 3 次深呼吸，然后轻声对自己说一句此刻最需要听见的话。",
+  ],
+};
+
+const GENERAL_SUGGESTIONS = [
+  "给自己留 5 分钟安静坐一坐，问问现在最想被照顾的是哪一部分感受。",
+  "如果愿意，可以把这份报告里最触动你的一句话读出来，让自己真正听见它。",
+  "今天只选一件最小、最容易做到的事完成，让情绪有一个温柔落地的地方。",
 ];
+
+const DRAWING_ACTION_PATTERN =
+  /(继续画|再画|补画|补一层|补色|再涂|涂色|线条|色块|轮盘|分区|图案|画面里再|纸上|画纸|重新上色|把.*画出来)/;
 
 const ZONE_STATUS_VALUES = new Set<ZoneStatus>(["painted", "blank", "unclear"]);
 const CONFIDENCE_VALUES = new Set<AnalysisConfidence>(["high", "medium", "low"]);
@@ -171,6 +201,23 @@ function cleanParagraph(value: unknown, fallback = "") {
   return text.replace(/\s*([，。！？；：])\s*/g, "$1");
 }
 
+function softenReportLanguage(text: string) {
+  return text
+    .replace(/营造出/g, "带出")
+    .replace(/传达出/g, "轻轻流露出")
+    .replace(/强化了/g, "让")
+    .replace(/视觉节奏/g, "画面节奏")
+    .replace(/象征着/g, "像在说")
+    .replace(/提示你/g, "像是在轻轻提醒你")
+    .replace(/提醒你/g, "像是在轻轻提醒你")
+    .replace(/反映出你/g, "让人感觉你此刻")
+    .replace(/说明你就是/g, "像是在说你此刻")
+    .replace(/说明你/g, "像是在说你")
+    .replace(/意味着一切都/g, "不一定表示一切都")
+    .replace(/过于/g, "有些")
+    .replace(/仿佛/g, "像是");
+}
+
 function softenCenterReference(text: string) {
   return text
     .replace(/空白的中心区|空白的中心区域/g, "画面中还想继续连接的地方")
@@ -188,20 +235,58 @@ function cleanStringList(value: unknown, limit: number) {
     .slice(0, limit);
 }
 
-function clampSuggestions(items: string[]) {
-  const normalized = items.filter(Boolean).slice(0, 5);
+function normalizeSuggestion(text: string) {
+  return cleanParagraph(text)
+    .replace(/^[\d一二三四五六七八九十]+[、.．)\s]*/, "")
+    .replace(/^[-*•]\s*/, "");
+}
 
-  for (const suggestion of DEFAULT_SUGGESTIONS) {
-    if (normalized.length >= 3) {
-      break;
-    }
+function buildFallbackSuggestions(analysis: EmotionWheelVisualAnalysis) {
+  const suggestions: string[] = [];
+  const paintedZones = analysis.zones.filter((zone) => zone.status === "painted").map((zone) => zone.name);
 
-    if (!normalized.includes(suggestion)) {
-      normalized.push(suggestion);
+  for (const zoneName of paintedZones) {
+    for (const suggestion of REAL_WORLD_ZONE_SUGGESTIONS[zoneName]) {
+      if (!suggestions.includes(suggestion)) {
+        suggestions.push(suggestion);
+      }
     }
   }
 
-  return normalized.slice(0, 5);
+  if (analysis.zones.some((zone) => zone.status === "blank")) {
+    suggestions.push("如果某些地方还没准备好展开，就先允许它保持安静，不急着给所有感受一个结论。");
+  }
+
+  if (analysis.confidence !== "high") {
+    suggestions.push("这份报告可以当成一次轻轻的整理，如果你愿意，也可以对照原作再看看哪些部分还想补充说明。");
+  }
+
+  for (const suggestion of GENERAL_SUGGESTIONS) {
+    if (!suggestions.includes(suggestion)) {
+      suggestions.push(suggestion);
+    }
+  }
+
+  return suggestions.slice(0, 5);
+}
+
+function clampSuggestions(items: string[], analysis: EmotionWheelVisualAnalysis) {
+  const normalized = items
+    .map((item) => normalizeSuggestion(item))
+    .filter((item) => item && !DRAWING_ACTION_PATTERN.test(item));
+  const merged = [...normalized];
+
+  for (const suggestion of buildFallbackSuggestions(analysis)) {
+    if (merged.length >= 5) {
+      break;
+    }
+
+    if (!merged.includes(suggestion)) {
+      merged.push(suggestion);
+    }
+  }
+
+  return merged.slice(0, Math.max(3, Math.min(5, merged.length)));
 }
 
 function normalizeZoneName(value: unknown): WheelZoneName | null {
@@ -241,48 +326,47 @@ function defaultZoneEvidence(zoneName: WheelZoneName, status: ZoneStatus) {
   return `${zoneName}区当前信息不足，暂时无法稳定判断更具体的绘画内容。`;
 }
 
-function buildRecognitionNote(analysis: EmotionWheelVisualAnalysis, rawNote?: unknown) {
-  const explicit = cleanParagraph(rawNote);
-  if (explicit) {
-    return explicit;
-  }
-
+function buildRecognitionNote(analysis: EmotionWheelVisualAnalysis) {
   const blankCount = analysis.zones.filter((zone) => zone.status === "blank").length;
   const unclearCount = analysis.zones.filter((zone) => zone.status === "unclear").length;
 
+  if (analysis.confidence === "high" && unclearCount === 0 && blankCount === 0) {
+    return "本次图像质量较高，所有分区细节清晰可辨。";
+  }
+
   if (analysis.confidence === "high" && unclearCount === 0) {
-    return "这张作品的轮盘结构较完整，分区内容清晰可辨，以下解读可以较稳定地围绕画面线索展开。";
+    return "本次图像质量较高，主要分区细节清晰可辨，部分区域保持自然留白。";
   }
 
   if (analysis.confidence === "low" || unclearCount >= 3) {
-    return "本次识别已经尽量基于可见画面进行整理，但照片里仍有一些分区不够清晰，建议把留白和模糊部分一起理解为“暂未完全展开”的内容。";
+    return "这张照片里有几处区域不够清晰，以下解读会更谨慎地围绕可见部分展开。";
   }
 
   if (blankCount >= 3) {
-    return "这张作品里既有较明确的表达，也有一些自然保留的留白区，报告会优先围绕已经显现的部分展开，同时对未展开区域保持尊重。";
+    return "图片主体基本清晰，已能看到主要分区内容，较多留白会作为自然保留的一部分来理解。";
   }
 
-  return "这张作品的主要画面线索已经能够被识别，但个别区域仍建议结合现场观察与创作者自己的感受一起理解。";
+  return "图片主体基本清晰，主要分区已经可以辨认，少量模糊区域会保留谨慎说明。";
 }
 
 function buildOverallImpressionFallback(analysis: EmotionWheelVisualAnalysis) {
   const visibleZones = analysis.zones.filter((zone) => zone.status === "painted").map((zone) => zone.name);
   const zoneText = visibleZones.length
-    ? `较明显被点亮的分区主要集中在${visibleZones.join("、")}。`
-    : "画面里暂时没有太多高饱和、强占比的分区表达。";
+    ? `这次更容易被看见的表达，主要落在${visibleZones.join("、")}这些分区。`
+    : "画面里暂时没有特别强烈地被推到前面的分区表达。";
   const keyElementText = analysis.keyElements.length
     ? `从可见线索看，${analysis.keyElements.slice(0, 3).join("，")}。`
     : "";
 
-  return `${analysis.overallScene}${zoneText}${keyElementText}整幅作品更像是在用画面的轻重、疏密和留白来安排情绪的出现顺序，而不是一次性把所有感受都说满。`;
+  return `${analysis.overallScene}${zoneText}${keyElementText}整幅作品并不是把所有感受一起推到前面，而是让一些内容先出现，另一些内容先安静地停在那里。这样的安排会让人感觉到，你正在用自己的节奏慢慢靠近内在，而不是急着一次说完所有情绪。`;
 }
 
 function buildKeyElementsFallback(analysis: EmotionWheelVisualAnalysis) {
   if (!analysis.keyElements.length) {
-    return "这次画面中最重要的线索，主要来自不同分区之间的疏密差异、颜色停留的位置以及哪些地方被主动保留为空白。";
+    return "这次画面里最值得留意的线索，主要来自不同分区之间的轻重差异、颜色停留的位置，以及哪些地方被你主动留了下来。";
   }
 
-  return `从画面上最容易被注意到的线索来看，${analysis.keyElements.join("，")}。这些元素并不是孤立出现的，它们一起决定了作品给人的节奏感，也让某些分区显得更靠前、另一些分区则更安静。`;
+  return `从画面上最容易被注意到的线索来看，${analysis.keyElements.join("，")}。它们并不是孤立出现的，而是在互相呼应里慢慢把整幅作品的气氛带出来，也让某些感受更靠前，另一些感受则先留在稍远一点的位置。`;
 }
 
 function buildComprehensiveInsightFallback(analysis: EmotionWheelVisualAnalysis) {
@@ -290,14 +374,14 @@ function buildComprehensiveInsightFallback(analysis: EmotionWheelVisualAnalysis)
   const blankCount = analysis.zones.filter((zone) => zone.status === "blank").length;
 
   if (!painted.length) {
-    return "这幅作品更像是一个还在形成中的情绪现场。比起急着下结论，更重要的是允许自己承认：此刻也许还没有准备好把每一部分都说清楚。";
+    return "这幅作品更像是一个还在慢慢形成中的情绪现场。比起急着下结论，更重要的是允许自己承认：有些感受也许还在路上，还没有准备好立刻说清楚。";
   }
 
-  return `综合来看，这幅作品里已经被表达出来的情绪主要围绕${painted.join("、")}展开，而保留下来的${blankCount}个留白分区，则像是在替其他尚未完全展开的感受留位置。它传递出的不是单一结论，而是一种仍在流动、仍可继续被整理的内在状态。`;
+  return `综合来看，这幅作品里已经被表达出来的内容，主要围绕${painted.join("、")}展开；而保留下来的${blankCount}个留白分区，也像是在给其他暂时还没准备好靠近的感受留位置。它更像一段正在整理中的心情，而不是一个已经定型的答案。`;
 }
 
 function buildClosingFallback() {
-  return "你不需要一次就把所有情绪都讲得很完整。能把当下真实出现的部分画出来、看见它、再慢慢补充它，本身就已经是一种很有力量的自我照顾。";
+  return "你不需要一次就把所有情绪都讲得很完整。能先把此刻真正浮出来的部分看见、放下、再慢慢靠近，已经是一种很认真也很温柔的自我照顾。";
 }
 
 function buildZoneInsightFallback(zone: WheelZoneObservation) {
@@ -305,7 +389,7 @@ function buildZoneInsightFallback(zone: WheelZoneObservation) {
     return "";
   }
 
-  return `${zone.name}区里已经出现了比较明确的绘画痕迹：${zone.evidence}。这说明在这张轮盘里，这部分感受更容易被看见，也更像是你此刻愿意先放到台前、先和自己碰一碰的内容。`;
+  return `在${zone.name}区里，你已经留下了比较明确的痕迹：${zone.evidence}。这会让人感觉到，这部分感受此刻更容易被你看见，也更像是你愿意先停下来碰一碰、听一听的内容。`;
 }
 
 function formatCountSummary(zones: WheelZoneObservation[]) {
@@ -475,25 +559,39 @@ export function normalizeReport(
         )
       : fallbackZoneInsights;
 
-  const actionSuggestions = clampSuggestions(cleanStringList(payload.action_suggestions, 5));
+  const actionSuggestions = clampSuggestions(cleanStringList(payload.action_suggestions, 5), visualAnalysis);
   const counts = formatCountSummary(visualAnalysis.zones);
 
   const writerOutput: EmotionWheelReportWriterOutput = {
-    recognition_note: softenCenterReference(
-      buildRecognitionNote(visualAnalysis, payload.recognition_note),
-    ),
-    overall_impression: softenCenterReference(
-      cleanParagraph(payload.overall_impression, buildOverallImpressionFallback(visualAnalysis)),
+    recognition_note: softenReportLanguage(
+      softenCenterReference(
+      buildRecognitionNote(visualAnalysis),
+    )),
+    overall_impression: softenReportLanguage(
+      softenCenterReference(
+        cleanParagraph(payload.overall_impression, buildOverallImpressionFallback(visualAnalysis)),
+      ),
     ),
     zone_insights: zoneInsights,
-    key_elements: softenCenterReference(
-      cleanParagraph(payload.key_elements, buildKeyElementsFallback(visualAnalysis)),
+    key_elements: softenReportLanguage(
+      softenCenterReference(
+        cleanParagraph(payload.key_elements, buildKeyElementsFallback(visualAnalysis)),
+      ),
     ),
-    comprehensive_insight: softenCenterReference(
-      cleanParagraph(payload.comprehensive_insight, buildComprehensiveInsightFallback(visualAnalysis)),
+    comprehensive_insight: softenReportLanguage(
+      softenCenterReference(
+        cleanParagraph(
+          payload.comprehensive_insight,
+          buildComprehensiveInsightFallback(visualAnalysis),
+        ),
+      ),
     ),
-    action_suggestions: actionSuggestions.map((suggestion) => softenCenterReference(suggestion)),
-    closing: softenCenterReference(cleanParagraph(payload.closing, buildClosingFallback())),
+    action_suggestions: actionSuggestions.map((suggestion) =>
+      softenReportLanguage(softenCenterReference(suggestion)),
+    ),
+    closing: softenReportLanguage(
+      softenCenterReference(cleanParagraph(payload.closing, buildClosingFallback())),
+    ),
   };
 
   return {

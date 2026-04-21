@@ -20,8 +20,6 @@
   <text x="518" y="530" text-anchor="middle" fill="#2F7A5B" font-size="32" font-family="Microsoft YaHei, sans-serif" font-weight="700">恐惧</text>
   <text x="360" y="592" text-anchor="middle" fill="#4867A8" font-size="34" font-family="Microsoft YaHei, sans-serif" font-weight="700">杂乱</text>
   <text x="204" y="530" text-anchor="middle" fill="#7859AB" font-size="32" font-family="Microsoft YaHei, sans-serif" font-weight="700">激动</text>
-  <text x="148" y="372" text-anchor="middle" fill="#A75077" font-size="32" font-family="Microsoft YaHei, sans-serif" font-weight="700">注视</text>
-  <text x="204" y="214" text-anchor="middle" fill="#AE7644" font-size="32" font-family="Microsoft YaHei, sans-serif" font-weight="700">期待</text>
-  <text x="360" y="354" text-anchor="middle" fill="#B68773" font-size="22" font-family="Microsoft YaHei, sans-serif" font-weight="700">中心区域可自由表达</text>
-  <text x="360" y="388" text-anchor="middle" fill="#C79A83" font-size="18" font-family="Microsoft YaHei, sans-serif">系统不会把它当作独立分区</text>
+  <text x="148" y="372" text-anchor="middle" fill="#AE7644" font-size="32" font-family="Microsoft YaHei, sans-serif" font-weight="700">期待</text>
+  <text x="204" y="214" text-anchor="middle" fill="#A75077" font-size="32" font-family="Microsoft YaHei, sans-serif" font-weight="700">注视</text>
 </svg>

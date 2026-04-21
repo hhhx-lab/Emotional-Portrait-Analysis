@@ -38,36 +38,36 @@ const PROCESS_STEPS = [
   {
     index: "01",
     title: "上传轮盘作品",
-    description: "支持拖拽、点击上传和桌面端粘贴截图，图片会先本地预览，再进入分析。",
+    description: "支持拖拽、点击上传或粘贴图片，上传后会立刻看到预览。",
   },
   {
     index: "02",
-    title: "双模型协作解读",
-    description: "Gemini 先提取事实观察，Grok 再把观察结果写成自然、温暖、非诊断性的报告。",
+    title: "AI智能解读",
+    description: "系统会分析 8 个分区里的颜色与图案，生成温暖、具体的个性化报告。",
   },
   {
     index: "03",
-    title: "导出课堂报告",
-    description: "报告生成后可直接打印或保存为 PDF，适合课堂展示、讨论和课后回看。",
+    title: "导出解读报告",
+    description: "报告生成后可一键打印或保存为 PDF，适合展示、分享与回顾。",
   },
 ] as const;
 
 const ANALYZING_STEPS = [
   {
     title: "已收到作品",
-    detail: "系统正在整理图片尺寸，并检查轮盘边界是否完整进入画面。",
+    detail: "系统正在检查图片清晰度，并确认轮盘是否完整进入画面。",
   },
   {
-    title: "Gemini 正在观察画面",
-    detail: "系统正在识别颜色、符号、留白和 8 个固定分区中的可见线索。",
+    title: "正在识别画面",
+    detail: "系统正在读取颜色、图案、留白和每个分区里的主要线索。",
   },
   {
-    title: "Grok 正在撰写报告",
-    detail: "结构化观察结果正在被整理成一份适合课堂阅读和打印的中文报告。",
+    title: "正在生成报告",
+    detail: "系统正在整理一份温暖、具体、适合回看的中文解读。",
   },
   {
     title: "正在完成校验",
-    detail: "系统正在补齐报告头部统计、免责声明和导出前的最终版式。",
+    detail: "系统正在完成最后校对，并准备导出版式。",
   },
 ] as const;
 
@@ -167,7 +167,7 @@ function buildUploadHint(width: number, height: number, fileSize: number) {
   const aspectRatio = maxSide / minSide;
 
   if (maxSide < 900) {
-    return "图片分辨率偏小，建议使用更清晰的原图，能明显提升分区与细节识别稳定性。";
+    return "图片分辨率偏小，建议换一张更清晰的原图，能更稳地看见分区与细节。";
   }
 
   if (aspectRatio > 1.8) {
@@ -261,7 +261,7 @@ function ZoneCard({ zone }: { zone: EmotionWheelReportZoneInsight }) {
         <span className={`mt-1 h-3 w-3 rounded-full ${tone.dot}`} />
         <div>
           <h4 className={`text-lg font-semibold ${tone.accent}`}>{zone.zone_name}区</h4>
-          <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">Zone Insight</p>
+          <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">Emotion Insight</p>
         </div>
       </div>
       <p className="mt-4 text-sm leading-7 text-slate-700">{zone.insight}</p>
@@ -481,7 +481,7 @@ export function EmotionWheelTool() {
     setReport(null);
     setNotice({
       tone: "info",
-      text: "系统正在读取分区线索、留白和关键元素，请稍候。",
+      text: "系统正在轻轻阅读你的作品，请稍候。",
     });
 
     try {
@@ -511,7 +511,7 @@ export function EmotionWheelTool() {
         setState("ready");
         setNotice({
           tone: "success",
-          text: "报告已生成，已按照新版课程结构整理为可阅读、可打印的版式。",
+          text: "报告已经生成好了，你现在可以直接阅读，也可以保存为 PDF。",
         });
       });
 
@@ -618,7 +618,7 @@ export function EmotionWheelTool() {
           <div className="grid gap-8 xl:grid-cols-[1.16fr_0.84fr]">
             <div className="space-y-6">
               <div className="flex flex-wrap items-center gap-3">
-                <span className="inline-flex items-center rounded-full border border-rose-100 bg-rose-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-rose-700">
+                <span className="inline-flex items-center rounded-full border border-orange-100 bg-orange-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-orange-700">
                   Emotion Wheel Lab
                 </span>
                 <span className="rounded-full border border-white/70 bg-white/80 px-3 py-2 text-xs text-slate-500">
@@ -631,12 +631,11 @@ export function EmotionWheelTool() {
                   Emotion Wheel Portrait
                 </p>
                 <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-900 sm:text-[3.6rem]">
-                  为课堂中的情绪轮盘作品，
-                  <span className="font-display italic text-rose-700">生成一份温柔而具体的解读报告</span>
+                  上传你的情绪轮盘画作，
+                  <span className="font-display italic text-emerald-800">聆听内心的声音</span>
                 </h1>
                 <p className="mt-4 max-w-3xl text-base leading-8 text-slate-600">
-                  这是一份为课程现场与自我觉察设计的轻量网页工具。上传标准情绪轮盘作品后，系统会围绕固定的 8
-                  个分区生成一份结构化、非诊断性的中文报告，帮助大家更顺畅地阅读自己的画面表达。
+                  用颜色、符号、线条和图案，把此刻的感受轻轻放进轮盘里。上传作品后，你会收到一份温柔、具体、适合回看的解读报告。
                 </p>
               </div>
 
@@ -674,7 +673,7 @@ export function EmotionWheelTool() {
                           标准模板 + 自由绘画 + 结构化解读
                         </h2>
                         <p className="mt-2 text-sm leading-7 text-slate-600">
-                          你可以在标准轮盘模板中自由使用颜色、符号和线条表达感受。系统会优先读取分区里的绘画痕迹、留白和整体节奏，而不是把模板印刷文字直接当作用户表达。
+                          你可以自由使用颜色、符号、线条和图案表达感受。系统会围绕固定的 8 个分区，优先读取分区里的绘画痕迹、留白和整体节奏，生成一份更容易理解和回看的报告。
                         </p>
                       </div>
 
@@ -690,7 +689,7 @@ export function EmotionWheelTool() {
                       </div>
 
                       <div className="rounded-[1.3rem] border border-amber-100 bg-amber-50/80 p-4 text-sm leading-7 text-amber-900">
-                        新版流程不再单独把中心区作为独立分区。若画面中心附近有明显内容，系统会把它自然融合进整体印象或关键元素分析中。
+                        中心附近的内容会自然融合进整体印象或关键元素分析中，不需要额外标注也能被温柔看见。
                       </div>
                     </div>
                   </div>
@@ -728,7 +727,7 @@ export function EmotionWheelTool() {
                   </p>
                   <h2 className="mt-2 text-2xl font-semibold text-slate-900">一个顺手、自然的使用流程</h2>
                   <p className="mt-2 text-sm leading-7 text-slate-600">
-                    上传成功后会先立即预览原图。点击开始解读时，系统会自动优化图片，再进入双模型分析流程。
+                    上传图片后立刻预览 → 点击开始解读 → 系统自动生成解读报告 → 支持一键导出 PDF。
                   </p>
                 </div>
 
@@ -897,7 +896,7 @@ export function EmotionWheelTool() {
                     type="button"
                     disabled={!canAnalyze}
                     onClick={() => void handleAnalyze()}
-                    className="inline-flex min-w-[196px] items-center justify-center rounded-full bg-slate-900 px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    className="inline-flex min-w-[196px] items-center justify-center rounded-full bg-[linear-gradient(135deg,#f08f74,#eda985)] px-6 py-3.5 text-sm font-semibold text-white shadow-[0_14px_30px_rgba(240,143,116,0.24)] transition hover:brightness-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
                   >
                     {state === "analyzing" ? "AI 正在温柔解读你的情绪…" : "开始解读"}
                   </button>
@@ -934,7 +933,7 @@ export function EmotionWheelTool() {
                   {clipboardSupported ? (
                     <button
                       type="button"
-                      className="inline-flex items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 px-5 py-3.5 text-sm font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100"
+                      className="inline-flex items-center justify-center rounded-full border border-orange-200 bg-orange-50 px-5 py-3.5 text-sm font-semibold text-orange-700 transition hover:border-orange-300 hover:bg-orange-100"
                       onClick={() => void handleClipboardUpload()}
                     >
                       粘贴截图上传
@@ -965,7 +964,7 @@ export function EmotionWheelTool() {
                       />
                     </div>
                     <p className="mt-3 text-xs leading-6 text-emerald-900/80">
-                      课堂现场多人一起使用时，解读通常在 10-40 秒内完成。期间请不要重复提交。
+                      大多数情况下，解读会在 10-40 秒内完成。等待时不需要重复点击。
                     </p>
                   </div>
                 ) : null}
