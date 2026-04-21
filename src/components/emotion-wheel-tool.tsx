@@ -8,7 +8,6 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
 
 import {
@@ -284,11 +283,6 @@ export function EmotionWheelTool() {
   const [loadingStepIndex, setLoadingStepIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
-  const clipboardSupported = useSyncExternalStore(
-    () => () => {},
-    () => Boolean(navigator.clipboard?.read),
-    () => false,
-  );
 
   useEffect(() => {
     return () => {
@@ -374,6 +368,12 @@ export function EmotionWheelTool() {
         block: "start",
       });
     }, 120);
+  }
+
+  function openUploadDialog() {
+    if (state !== "analyzing") {
+      inputRef.current?.click();
+    }
   }
 
   function resetSession(options?: { preserveIdentity?: boolean }) {
@@ -539,52 +539,6 @@ export function EmotionWheelTool() {
     }
   }
 
-  async function handleClipboardUpload() {
-    if (!clipboardSupported) {
-      setState("error");
-      setNotice({
-        tone: "error",
-        text: "当前浏览器暂不支持直接读取剪贴板图片，请改用上传。",
-      });
-      return;
-    }
-
-    try {
-      const items = await navigator.clipboard.read();
-      for (const item of items) {
-        const imageType = item.types.find((type) => ACCEPTED_IMAGE_TYPES.includes(type));
-        if (!imageType) {
-          continue;
-        }
-
-        const blob = await item.getType(imageType);
-        await applyFile(
-          new File(
-            [blob],
-            `clipboard-${Date.now()}.${imageType === "image/png" ? "png" : "jpg"}`,
-            {
-              type: imageType,
-              lastModified: Date.now(),
-            },
-          ),
-        );
-        return;
-      }
-
-      setState("error");
-      setNotice({
-        tone: "error",
-        text: "剪贴板里暂时没有可用的图片，请复制截图后再试。",
-      });
-    } catch {
-      setState("error");
-      setNotice({
-        tone: "error",
-        text: "读取剪贴板失败，请改用拖拽或点击上传。",
-      });
-    }
-  }
-
   async function handlePrintReport() {
     if (!report) {
       return;
@@ -687,10 +641,6 @@ export function EmotionWheelTool() {
                           </span>
                         ))}
                       </div>
-
-                      <div className="rounded-[1.3rem] border border-amber-100 bg-amber-50/80 p-4 text-sm leading-7 text-amber-900">
-                        中心附近的内容会自然融合进整体印象或关键元素分析中，不需要额外标注也能被温柔看见。
-                      </div>
                     </div>
                   </div>
                 </article>
@@ -762,14 +712,12 @@ export function EmotionWheelTool() {
                     }
                   }}
                   onClick={() => {
-                    if (state !== "analyzing") {
-                      inputRef.current?.click();
-                    }
+                    openUploadDialog();
                   }}
                   onKeyDown={(event) => {
                     if ((event.key === "Enter" || event.key === " ") && state !== "analyzing") {
                       event.preventDefault();
-                      inputRef.current?.click();
+                      openUploadDialog();
                     }
                   }}
                 >
@@ -843,11 +791,16 @@ export function EmotionWheelTool() {
                         </p>
                       </div>
                       <div className="flex flex-wrap justify-center gap-2 text-xs text-slate-500">
-                        <span className="rounded-full border border-white/80 bg-white/80 px-3 py-1.5">拖拽上传</span>
-                        <span className="rounded-full border border-white/80 bg-white/80 px-3 py-1.5">点击选择</span>
-                        <span className="rounded-full border border-white/80 bg-white/80 px-3 py-1.5">
-                          桌面端粘贴截图
-                        </span>
+                        <button
+                          type="button"
+                          className="rounded-full border border-slate-200 bg-white px-5 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openUploadDialog();
+                          }}
+                        >
+                          上传
+                        </button>
                       </div>
                     </div>
                   )}
@@ -916,29 +869,12 @@ export function EmotionWheelTool() {
                       <button
                         type="button"
                         className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-5 py-3.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-                        onClick={() => resetSession()}
-                      >
-                        重新上传新作品
-                      </button>
-                      <button
-                        type="button"
-                        className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-5 py-3.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
                         onClick={() => resetSession({ preserveIdentity: false })}
                       >
                         清空本页
                       </button>
                     </>
                   )}
-
-                  {clipboardSupported ? (
-                    <button
-                      type="button"
-                      className="inline-flex items-center justify-center rounded-full border border-orange-200 bg-orange-50 px-5 py-3.5 text-sm font-semibold text-orange-700 transition hover:border-orange-300 hover:bg-orange-100"
-                      onClick={() => void handleClipboardUpload()}
-                    >
-                      粘贴截图上传
-                    </button>
-                  ) : null}
                 </div>
 
                 {state === "analyzing" ? (
@@ -1114,8 +1050,7 @@ export function EmotionWheelTool() {
               </div>
             </div>
 
-            <div className="no-print mt-8 flex flex-wrap items-center justify-between gap-4 rounded-[1.6rem] border border-white/80 bg-white/84 px-4 py-4 text-sm leading-7 text-slate-600">
-              <p>每一幅画都值得被认真阅读。如果你愿意，可以重新上传一张新的作品，观察此刻是否有了新的变化。</p>
+            <div className="no-print mt-8 flex flex-wrap items-center justify-end gap-4 rounded-[1.6rem] border border-white/80 bg-white/84 px-4 py-4 text-sm leading-7 text-slate-600">
               <div className="flex flex-wrap gap-3">
                 <button
                   type="button"
