@@ -180,6 +180,172 @@ function buildUploadHint(width: number, height: number, fileSize: number) {
   return "这张图片的基础尺寸和比例看起来可用，继续保持正面、无遮挡、光线均匀的拍摄方式会更稳。";
 }
 
+function isLikelyMobileExportEnvironment() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  const userAgent = navigator.userAgent.toLowerCase();
+  const coarsePointer = window.matchMedia?.("(pointer: coarse)").matches ?? false;
+
+  return (
+    /android|iphone|ipad|ipod|mobile|micromessenger|qqbrowser|qq\//.test(userAgent) ||
+    (coarsePointer && window.innerWidth < 1100)
+  );
+}
+
+function buildPdfFileName(nickname: string) {
+  const baseName = (nickname || "匿名").trim().replace(/[\\/:*?"<>|]/g, "_");
+  return `${baseName || "匿名"}-情绪轮盘解读报告.pdf`;
+}
+
+async function waitForLayoutStability() {
+  if (document.fonts?.ready) {
+    await document.fonts.ready;
+  }
+
+  await new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => resolve());
+    });
+  });
+}
+
+async function deliverPdfBlob(blob: Blob, filename: string) {
+  const pdfFile = new File([blob], filename, { type: "application/pdf" });
+
+  if (typeof navigator !== "undefined" && "share" in navigator) {
+    try {
+      if (navigator.canShare?.({ files: [pdfFile] })) {
+        await navigator.share({
+          files: [pdfFile],
+          title: filename,
+          text: "情绪轮盘解读报告",
+        });
+
+        return "shared" as const;
+      }
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError")) {
+        throw error;
+      }
+    }
+  }
+
+  const blobUrl = URL.createObjectURL(blob);
+
+  try {
+    if (isLikelyMobileExportEnvironment()) {
+      window.open(blobUrl, "_blank", "noopener,noreferrer");
+      return "previewed" as const;
+    }
+
+    const link = document.createElement("a");
+    link.href = blobUrl;
+    link.download = filename;
+    link.rel = "noopener";
+    document.body.append(link);
+    link.click();
+    link.remove();
+
+    return "downloaded" as const;
+  } finally {
+    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+  }
+}
+
+async function exportElementAsPdf(element: HTMLElement, filename: string) {
+  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+    import("html2canvas"),
+    import("jspdf"),
+  ]);
+
+  await waitForLayoutStability();
+
+  const canvas = await html2canvas(element, {
+    backgroundColor: "#ffffff",
+    imageTimeout: 0,
+    logging: false,
+    scale: Math.min(window.devicePixelRatio || 1, 2),
+    useCORS: true,
+    windowWidth: document.documentElement.clientWidth,
+    onclone: (clonedDocument) => {
+      clonedDocument.body.style.background = "#ffffff";
+      clonedDocument.documentElement.style.background = "#ffffff";
+
+      clonedDocument.querySelectorAll<HTMLElement>(".no-print").forEach((node) => {
+        node.style.display = "none";
+      });
+
+      const clonedRoot = clonedDocument.getElementById("report-section");
+      if (clonedRoot instanceof HTMLElement) {
+        clonedRoot.classList.remove("animate-fade-up");
+        clonedRoot.style.marginTop = "0";
+        clonedRoot.style.boxShadow = "none";
+      }
+    },
+  });
+
+  const pdf = new jsPDF({
+    orientation: "portrait",
+    unit: "mm",
+    format: "a4",
+    compress: true,
+  });
+
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const margin = 10;
+  const printableWidth = pageWidth - margin * 2;
+  const printableHeight = pageHeight - margin * 2;
+  const pixelsPerMillimeter = canvas.width / printableWidth;
+  const pageHeightPixels = Math.max(1, Math.floor(printableHeight * pixelsPerMillimeter));
+
+  // Split the captured report into A4-height slices so long reports export cleanly on mobile.
+  for (let offsetY = 0, pageIndex = 0; offsetY < canvas.height; offsetY += pageHeightPixels, pageIndex += 1) {
+    const sliceHeightPixels = Math.min(pageHeightPixels, canvas.height - offsetY);
+    const pageCanvas = document.createElement("canvas");
+    pageCanvas.width = canvas.width;
+    pageCanvas.height = sliceHeightPixels;
+
+    const pageContext = pageCanvas.getContext("2d");
+    if (!pageContext) {
+      throw new Error("当前浏览器暂时无法生成 PDF，请换一个浏览器后再试。");
+    }
+
+    pageContext.fillStyle = "#ffffff";
+    pageContext.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+    pageContext.drawImage(
+      canvas,
+      0,
+      offsetY,
+      canvas.width,
+      sliceHeightPixels,
+      0,
+      0,
+      canvas.width,
+      sliceHeightPixels,
+    );
+
+    if (pageIndex > 0) {
+      pdf.addPage();
+    }
+
+    pdf.addImage(
+      pageCanvas.toDataURL("image/jpeg", 0.96),
+      "JPEG",
+      margin,
+      margin,
+      printableWidth,
+      sliceHeightPixels / pixelsPerMillimeter,
+      undefined,
+      "FAST",
+    );
+  }
+
+  return deliverPdfBlob(pdf.output("blob"), filename);
+}
+
 async function optimizeImage(file: File) {
   const image = await loadImageElement(file);
   const ratio = Math.min(1, MAX_DIMENSION / Math.max(image.width, image.height));
@@ -272,6 +438,7 @@ export function EmotionWheelTool() {
   const [nickname, setNickname] = useState("");
   const [feeling, setFeeling] = useState("");
   const [state, setState] = useState<AnalyzeState>("idle");
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [report, setReport] = useState<EmotionWheelReport | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [previewUrl, setPreviewUrl] = useState("");
@@ -539,13 +706,13 @@ export function EmotionWheelTool() {
     }
   }
 
-  async function handlePrintReport() {
+  async function handlePrintReport(filename: string) {
     if (!report) {
       return;
     }
 
     const previousTitle = document.title;
-    document.title = `${report.header.nickname || "匿名"}-情绪轮盘解读报告`;
+    document.title = filename.replace(/\.pdf$/i, "");
 
     if (document.fonts?.ready) {
       await document.fonts.ready;
@@ -556,6 +723,57 @@ export function EmotionWheelTool() {
     window.setTimeout(() => {
       document.title = previousTitle;
     }, 600);
+  }
+
+  async function handleExportReport() {
+    if (!report || isExportingPdf) {
+      return;
+    }
+
+    const filename = buildPdfFileName(report.header.nickname || "匿名");
+    const shouldGeneratePdf = isLikelyMobileExportEnvironment();
+
+    setIsExportingPdf(true);
+    setNotice({
+      tone: "info",
+      text: shouldGeneratePdf
+        ? "正在生成 PDF，请稍候，完成后会自动打开保存或分享入口。"
+        : "正在准备导出内容，系统会唤起浏览器打印面板。",
+    });
+
+    try {
+      if (!shouldGeneratePdf) {
+        await handlePrintReport(filename);
+        setNotice({
+          tone: "success",
+          text: "打印面板已经打开，你可以直接选择“另存为 PDF”。",
+        });
+        return;
+      }
+
+      const reportElement = document.getElementById("report-section");
+      if (!(reportElement instanceof HTMLElement)) {
+        throw new Error("报告区域还没有准备好，请稍候再试。");
+      }
+
+      const delivery = await exportElementAsPdf(reportElement, filename);
+      setNotice({
+        tone: "success",
+        text:
+          delivery === "shared"
+            ? "PDF 已准备好，系统分享面板已经打开。"
+            : delivery === "previewed"
+              ? "PDF 已生成，浏览器会尝试打开预览页；若已打开，可在系统菜单里保存或分享。"
+              : "PDF 已生成并开始下载。",
+      });
+    } catch (error) {
+      setNotice({
+        tone: "error",
+        text: error instanceof Error ? error.message : "导出失败，请稍后再试。",
+      });
+    } finally {
+      setIsExportingPdf(false);
+    }
   }
 
   return (
@@ -954,10 +1172,11 @@ export function EmotionWheelTool() {
                 </span>
                 <button
                   type="button"
-                  className="no-print inline-flex items-center justify-center rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
-                  onClick={() => void handlePrintReport()}
+                  className="no-print inline-flex items-center justify-center rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  onClick={() => void handleExportReport()}
+                  disabled={isExportingPdf}
                 >
-                  保存为 PDF
+                  {isExportingPdf ? "正在导出..." : "保存为 PDF"}
                 </button>
               </div>
             </div>
@@ -1061,10 +1280,11 @@ export function EmotionWheelTool() {
                 </button>
                 <button
                   type="button"
-                  className="rounded-full bg-slate-900 px-4 py-2 font-semibold text-white transition hover:bg-slate-800"
-                  onClick={() => void handlePrintReport()}
+                  className="rounded-full bg-slate-900 px-4 py-2 font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  onClick={() => void handleExportReport()}
+                  disabled={isExportingPdf}
                 >
-                  导出这份报告
+                  {isExportingPdf ? "正在导出..." : "导出这份报告"}
                 </button>
               </div>
             </div>
