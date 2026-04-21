@@ -1,0 +1,4 @@
+interface:
+  display_name: "Emotion Wheel Gemini Vision"
+  short_description: "Evidence-first observation skill for Gemini emotion-wheel image reading"
+  default_prompt: "Use $emotion-wheel-gemini-vision to extract a strict emotion-wheel observation JSON with fixed zones, quality checks, and no psychological over-interpretation."

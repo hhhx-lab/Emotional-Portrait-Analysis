@@ -409,7 +409,7 @@ export async function POST(request: Request) {
       temperature: 0.22,
       maxTokens: 2200,
     });
-    report = normalizeReport(rawReport, nickname);
+    report = normalizeReport(rawReport, nickname, visualAnalysis);
   } catch (error) {
     console.error("[analyze-wheel] Grok stage failed", error);
 

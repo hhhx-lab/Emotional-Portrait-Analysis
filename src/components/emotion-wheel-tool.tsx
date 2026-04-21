@@ -23,58 +23,58 @@ import {
 import type {
   AnalyzeState,
   EmotionWheelReport,
+  EmotionWheelReportZoneInsight,
   ErrorResponse,
   FileSummary,
-  WheelZoneInsight,
   WheelZoneName,
 } from "@/types/report";
 
 const ACCEPTED_EXTENSIONS = ".jpg,.jpeg,.png";
 const MAX_DIMENSION = 1680;
 const TARGET_UPLOAD_BYTES = 2.2 * 1024 * 1024;
-const REQUEST_TIMEOUT_MS = 85_000;
+const REQUEST_TIMEOUT_MS = 90_000;
 
 const PROCESS_STEPS = [
   {
     index: "01",
     title: "上传轮盘作品",
-    description: "支持拖拽、点击上传与桌面端粘贴截图，图片会先本地预览再送审。",
+    description: "支持拖拽、点击上传和桌面端粘贴截图，图片会先本地预览，再进入分析。",
   },
   {
     index: "02",
-    title: "AI 双模型识读",
-    description: "Gemini 先做视觉观察，Grok 再把观察结果整理成温暖、克制的课程报告。",
+    title: "双模型协作解读",
+    description: "Gemini 先提取事实观察，Grok 再把观察结果写成自然、温暖、非诊断性的报告。",
   },
   {
     index: "03",
-    title: "导出与分享",
-    description: "报告生成后可直接打印或保存为 PDF，适合课堂投影、回顾与交流。",
+    title: "导出课堂报告",
+    description: "报告生成后可直接打印或保存为 PDF，适合课堂展示、讨论和课后回看。",
   },
 ] as const;
 
 const ANALYZING_STEPS = [
   {
     title: "已收到作品",
-    detail: "正在整理图片尺寸，并检查轮盘边界是否完整进入画面。",
+    detail: "系统正在整理图片尺寸，并检查轮盘边界是否完整进入画面。",
   },
   {
-    title: "Gemini 正在读图",
-    detail: "颜色、笔触、中心区域和留白正在被结构化整理。",
+    title: "Gemini 正在观察画面",
+    detail: "系统正在识别颜色、符号、留白和 8 个固定分区中的可见线索。",
   },
   {
-    title: "Grok 正在写报告",
-    detail: "系统会把视觉观察转换成一份适合课程使用的温暖中文报告。",
+    title: "Grok 正在撰写报告",
+    detail: "结构化观察结果正在被整理成一份适合课堂阅读和打印的中文报告。",
   },
   {
-    title: "正在完成润色",
-    detail: "正在做最后的字段校验和排版准备，请稍候片刻。",
+    title: "正在完成校验",
+    detail: "系统正在补齐报告头部统计、免责声明和导出前的最终版式。",
   },
 ] as const;
 
 const PHOTO_TIPS = [
   "尽量正面拍摄，完整拍到轮盘外边界。",
   "保持光线均匀，减少阴影、反光和局部过曝。",
-  "如果中心区域有图案或文字，请尽量保证它清晰可见。",
+  "如果画面里有文字、符号或细节，请尽量让它们保持清晰。",
 ] as const;
 
 const ZONE_STYLES: Record<
@@ -105,7 +105,7 @@ const ZONE_STYLES: Record<
     accent: "text-cyan-700",
     dot: "bg-cyan-400",
   },
-  未知: {
+  杂乱: {
     card: "from-sky-50 via-white to-indigo-50",
     accent: "text-sky-700",
     dot: "bg-sky-400",
@@ -115,15 +115,15 @@ const ZONE_STYLES: Record<
     accent: "text-violet-700",
     dot: "bg-violet-400",
   },
+  期待: {
+    card: "from-orange-50 via-white to-yellow-50",
+    accent: "text-orange-700",
+    dot: "bg-orange-400",
+  },
   注视: {
     card: "from-fuchsia-50 via-white to-pink-50",
     accent: "text-fuchsia-700",
     dot: "bg-fuchsia-400",
-  },
-  忽视: {
-    card: "from-orange-50 via-white to-stone-50",
-    accent: "text-orange-700",
-    dot: "bg-orange-400",
   },
 };
 
@@ -132,29 +132,6 @@ type NoticeTone = "info" | "error" | "success";
 interface NoticeState {
   tone: NoticeTone;
   text: string;
-}
-
-function formatDate(iso: string) {
-  const value = new Date(iso);
-  return value.toLocaleString("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function zoneStatusLabel(status: WheelZoneInsight["status"]) {
-  if (status === "painted") return "已有绘画";
-  if (status === "blank") return "留白";
-  return "需谨慎判断";
-}
-
-function zoneStatusClass(status: WheelZoneInsight["status"]) {
-  if (status === "painted") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (status === "blank") return "border-amber-200 bg-amber-50 text-amber-700";
-  return "border-slate-200 bg-slate-100 text-slate-700";
 }
 
 function noticeClass(tone: NoticeTone) {
@@ -167,16 +144,6 @@ function noticeClass(tone: NoticeTone) {
   }
 
   return "border-sky-200 bg-sky-50/90 text-sky-800";
-}
-
-function summarizeZones(zones: WheelZoneInsight[]) {
-  return {
-    painted: zones.filter((zone) => zone.status === "painted"),
-    quiet: zones.filter((zone) => zone.status !== "painted"),
-    paintedCount: zones.filter((zone) => zone.status === "painted").length,
-    blankCount: zones.filter((zone) => zone.status === "blank").length,
-    unclearCount: zones.filter((zone) => zone.status === "unclear").length,
-  };
 }
 
 async function loadImageElement(file: File) {
@@ -196,10 +163,11 @@ async function loadImageElement(file: File) {
 
 function buildUploadHint(width: number, height: number, fileSize: number) {
   const maxSide = Math.max(width, height);
-  const aspectRatio = maxSide / Math.max(1, Math.min(width, height));
+  const minSide = Math.max(1, Math.min(width, height));
+  const aspectRatio = maxSide / minSide;
 
   if (maxSide < 900) {
-    return "图片分辨率偏小，建议使用更清晰的原图，能明显提升轮盘边界和细节的识别稳定性。";
+    return "图片分辨率偏小，建议使用更清晰的原图，能明显提升分区与细节识别稳定性。";
   }
 
   if (aspectRatio > 1.8) {
@@ -210,7 +178,7 @@ function buildUploadHint(width: number, height: number, fileSize: number) {
     return "图片体积较大，系统会先自动压缩后再上传，通常不会影响主要解读质量。";
   }
 
-  return "画面尺寸初步可用，建议继续保持正面、无遮挡、光线均匀的拍摄方式。";
+  return "这张图片的基础尺寸和比例看起来可用，继续保持正面、无遮挡、光线均匀的拍摄方式会更稳。";
 }
 
 async function optimizeImage(file: File) {
@@ -282,28 +250,21 @@ function ProcessCard({
   );
 }
 
-function ZoneCard({ zone }: { zone: WheelZoneInsight }) {
-  const tone = ZONE_STYLES[zone.name];
+function ZoneCard({ zone }: { zone: EmotionWheelReportZoneInsight }) {
+  const tone = ZONE_STYLES[zone.zone_name];
 
   return (
     <article
       className={`card-break rounded-[1.5rem] border border-white/80 bg-gradient-to-br ${tone.card} p-4 shadow-[0_14px_38px_rgba(210,194,176,0.12)]`}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <span className={`mt-1 h-3 w-3 rounded-full ${tone.dot}`} />
-          <div>
-            <h4 className={`text-lg font-semibold ${tone.accent}`}>{zone.name}区</h4>
-            <p className="mt-1 text-xs tracking-[0.18em] text-slate-400 uppercase">Zone Insight</p>
-          </div>
+      <div className="flex items-start gap-3">
+        <span className={`mt-1 h-3 w-3 rounded-full ${tone.dot}`} />
+        <div>
+          <h4 className={`text-lg font-semibold ${tone.accent}`}>{zone.zone_name}区</h4>
+          <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">Zone Insight</p>
         </div>
-        <span
-          className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${zoneStatusClass(zone.status)}`}
-        >
-          {zoneStatusLabel(zone.status)}
-        </span>
       </div>
-      <p className="mt-4 text-sm leading-7 text-slate-700">{zone.summary}</p>
+      <p className="mt-4 text-sm leading-7 text-slate-700">{zone.insight}</p>
     </article>
   );
 }
@@ -323,7 +284,6 @@ export function EmotionWheelTool() {
   const [loadingStepIndex, setLoadingStepIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
-
   const clipboardSupported = useSyncExternalStore(
     () => () => {},
     () => Boolean(navigator.clipboard?.read),
@@ -351,6 +311,61 @@ export function EmotionWheelTool() {
 
     return () => window.clearInterval(timer);
   }, [state]);
+
+  const handleWindowPaste = useEffectEvent(async (event: ClipboardEvent) => {
+    if (state === "analyzing") {
+      return;
+    }
+
+    const activeElement = document.activeElement;
+    const isTypingTarget =
+      activeElement instanceof HTMLInputElement || activeElement instanceof HTMLTextAreaElement;
+
+    if (isTypingTarget) {
+      return;
+    }
+
+    const items = Array.from(event.clipboardData?.items || []);
+    const imageItem = items.find((item) => ACCEPTED_IMAGE_TYPES.includes(item.type));
+    const file = imageItem?.getAsFile();
+
+    if (!file) {
+      return;
+    }
+
+    event.preventDefault();
+    await applyFile(
+      new File([file], `clipboard-${Date.now()}.${file.type === "image/png" ? "png" : "jpg"}`, {
+        type: file.type,
+        lastModified: Date.now(),
+      }),
+    );
+  });
+
+  useEffect(() => {
+    window.addEventListener("paste", handleWindowPaste);
+
+    return () => {
+      window.removeEventListener("paste", handleWindowPaste);
+    };
+  }, []);
+
+  const activeLoadingStep = ANALYZING_STEPS[Math.min(loadingStepIndex, ANALYZING_STEPS.length - 1)];
+  const progressPercentage = [18, 46, 74, 92][Math.min(loadingStepIndex, ANALYZING_STEPS.length - 1)];
+  const canAnalyze = Boolean(selectedFile) && state !== "analyzing";
+
+  const reportSummary = useMemo(() => {
+    if (!report) {
+      return null;
+    }
+
+    return {
+      paintedCount: report.header.identified_zones,
+      blankCount: report.header.blank_zones,
+      cautionCount: report.header.caution,
+      zones: report.zone_insights,
+    };
+  }, [report]);
 
   function scrollToReport() {
     window.setTimeout(() => {
@@ -441,48 +456,6 @@ export function EmotionWheelTool() {
     }
   }
 
-  const handleWindowPaste = useEffectEvent(async (event: ClipboardEvent) => {
-    if (state === "analyzing") {
-      return;
-    }
-
-    const activeElement = document.activeElement;
-    const isTypingTarget =
-      activeElement instanceof HTMLInputElement || activeElement instanceof HTMLTextAreaElement;
-
-    if (isTypingTarget) {
-      return;
-    }
-
-    const items = Array.from(event.clipboardData?.items || []);
-    const imageItem = items.find((item) => ACCEPTED_IMAGE_TYPES.includes(item.type));
-
-    if (!imageItem) {
-      return;
-    }
-
-    const file = imageItem.getAsFile();
-    if (!file) {
-      return;
-    }
-
-    event.preventDefault();
-    await applyFile(
-      new File([file], `clipboard-${Date.now()}.${file.type === "image/png" ? "png" : "jpg"}`, {
-        type: file.type,
-        lastModified: Date.now(),
-      }),
-    );
-  });
-
-  useEffect(() => {
-    window.addEventListener("paste", handleWindowPaste);
-
-    return () => {
-      window.removeEventListener("paste", handleWindowPaste);
-    };
-  }, []);
-
   async function handleAnalyze() {
     if (!selectedFile) {
       setState("error");
@@ -494,10 +467,10 @@ export function EmotionWheelTool() {
     }
 
     requestControllerRef.current?.abort();
-
     const controller = new AbortController();
     requestControllerRef.current = controller;
     let timedOut = false;
+
     const timeoutId = window.setTimeout(() => {
       timedOut = true;
       controller.abort();
@@ -508,7 +481,7 @@ export function EmotionWheelTool() {
     setReport(null);
     setNotice({
       tone: "info",
-      text: "系统正在读取颜色、线条、中心区域和分区细节，请稍候。",
+      text: "系统正在读取分区线索、留白和关键元素，请稍候。",
     });
 
     try {
@@ -538,7 +511,7 @@ export function EmotionWheelTool() {
         setState("ready");
         setNotice({
           tone: "success",
-          text: "报告已生成，已为你整理成适合课堂展示与导出的版式。",
+          text: "报告已生成，已按照新版课程结构整理为可阅读、可打印的版式。",
         });
       });
 
@@ -580,7 +553,10 @@ export function EmotionWheelTool() {
       const items = await navigator.clipboard.read();
       for (const item of items) {
         const imageType = item.types.find((type) => ACCEPTED_IMAGE_TYPES.includes(type));
-        if (!imageType) continue;
+        if (!imageType) {
+          continue;
+        }
+
         const blob = await item.getType(imageType);
         await applyFile(
           new File(
@@ -615,20 +591,18 @@ export function EmotionWheelTool() {
     }
 
     const previousTitle = document.title;
-    document.title = `${report.nickname || "匿名"}-情绪轮盘解读报告`;
+    document.title = `${report.header.nickname || "匿名"}-情绪轮盘解读报告`;
 
-    await document.fonts.ready;
+    if (document.fonts?.ready) {
+      await document.fonts.ready;
+    }
+
     window.print();
 
     window.setTimeout(() => {
       document.title = previousTitle;
     }, 600);
   }
-
-  const canAnalyze = !!selectedFile && state !== "analyzing";
-  const activeLoadingStep = ANALYZING_STEPS[Math.min(loadingStepIndex, ANALYZING_STEPS.length - 1)];
-  const progressPercentage = [18, 44, 72, 92][Math.min(loadingStepIndex, ANALYZING_STEPS.length - 1)];
-  const reportSummary = useMemo(() => (report ? summarizeZones(report.zones) : null), [report]);
 
   return (
     <main className="relative overflow-hidden">
@@ -644,7 +618,7 @@ export function EmotionWheelTool() {
           <div className="grid gap-8 xl:grid-cols-[1.16fr_0.84fr]">
             <div className="space-y-6">
               <div className="flex flex-wrap items-center gap-3">
-                <span className="inline-flex items-center rounded-full border border-rose-100 bg-rose-50 px-4 py-2 text-xs font-semibold tracking-[0.2em] text-rose-700 uppercase">
+                <span className="inline-flex items-center rounded-full border border-rose-100 bg-rose-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-rose-700">
                   Emotion Wheel Lab
                 </span>
                 <span className="rounded-full border border-white/70 bg-white/80 px-3 py-2 text-xs text-slate-500">
@@ -652,24 +626,21 @@ export function EmotionWheelTool() {
                 </span>
               </div>
 
-              <div className="space-y-4">
-                <p className="font-display text-3xl leading-none text-slate-700 sm:text-4xl">
-                  Hear The Inner Weather
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.24em] text-emerald-700">
+                  Emotion Wheel Portrait
                 </p>
-                <h1 className="max-w-3xl text-4xl font-semibold tracking-tight text-slate-900 sm:text-5xl">
-                  上传你的绘画，
-                  <span className="block bg-gradient-to-r from-slate-900 via-emerald-700 to-cyan-700 bg-clip-text text-transparent">
-                    聆听内心的声音。
-                  </span>
+                <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-900 sm:text-[3.6rem]">
+                  为课堂中的情绪轮盘作品，
+                  <span className="font-display italic text-rose-700">生成一份温柔而具体的解读报告</span>
                 </h1>
-                <p className="max-w-3xl text-base leading-8 text-slate-600 sm:text-lg">
-                  这是一个为课程现场、自我觉察与温柔交流设计的网页工具。上传标准情绪轮盘画作后，系统会围绕固定的
-                  8 个分区，生成一份结构化、支持性、非诊断的中文报告，并支持直接导出为
-                  PDF。
+                <p className="mt-4 max-w-3xl text-base leading-8 text-slate-600">
+                  这是一份为课程现场与自我觉察设计的轻量网页工具。上传标准情绪轮盘作品后，系统会围绕固定的 8
+                  个分区生成一份结构化、非诊断性的中文报告，帮助大家更顺畅地阅读自己的画面表达。
                 </p>
               </div>
 
-              <div className="grid gap-4 lg:grid-cols-3">
+              <div className="grid gap-4 md:grid-cols-3">
                 {PROCESS_STEPS.map((step) => (
                   <ProcessCard
                     key={step.index}
@@ -703,21 +674,12 @@ export function EmotionWheelTool() {
                           标准模板 + 自由绘画 + 结构化解读
                         </h2>
                         <p className="mt-2 text-sm leading-7 text-slate-600">
-                          你可以在标准轮盘模板中自由使用颜色和图案表达感受，系统会优先读取分区里的绘画痕迹、中心区域、留白和整体节奏，而不是只看模板文字。
+                          你可以在标准轮盘模板中自由使用颜色、符号和线条表达感受。系统会优先读取分区里的绘画痕迹、留白和整体节奏，而不是把模板印刷文字直接当作用户表达。
                         </p>
                       </div>
 
                       <div className="flex flex-wrap gap-2">
-                        {[
-                          "愿望",
-                          "温暖",
-                          "希望",
-                          "恐惧",
-                          "未知",
-                          "激动",
-                          "注视",
-                          "忽视",
-                        ].map((zone) => (
+                        {["愿望", "温暖", "希望", "恐惧", "杂乱", "激动", "期待", "注视"].map((zone) => (
                           <span
                             key={zone}
                             className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700"
@@ -728,7 +690,7 @@ export function EmotionWheelTool() {
                       </div>
 
                       <div className="rounded-[1.3rem] border border-amber-100 bg-amber-50/80 p-4 text-sm leading-7 text-amber-900">
-                        轮盘中心也可以自由绘画。若照片角度过斜、轮盘边界缺失、局部模糊或反光严重，系统会主动降低确定性并提示补拍。
+                        新版流程不再单独把中心区作为独立分区。若画面中心附近有明显内容，系统会把它自然融合进整体印象或关键元素分析中。
                       </div>
                     </div>
                   </div>
@@ -766,9 +728,10 @@ export function EmotionWheelTool() {
                   </p>
                   <h2 className="mt-2 text-2xl font-semibold text-slate-900">一个顺手、自然的使用流程</h2>
                   <p className="mt-2 text-sm leading-7 text-slate-600">
-                    上传成功后会立即预览原图；点击开始解读时，系统会先自动优化图片，再进入双模型分析流程。
+                    上传成功后会先立即预览原图。点击开始解读时，系统会自动优化图片，再进入双模型分析流程。
                   </p>
                 </div>
+
                 <span className="rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">
                   {selectedFile ? (state === "analyzing" ? "分析中" : "准备就绪") : "等待上传"}
                 </span>
@@ -824,30 +787,7 @@ export function EmotionWheelTool() {
                     }}
                   />
 
-                  {!previewUrl ? (
-                    <div className="flex min-h-[290px] flex-col items-center justify-center gap-5 px-6 py-10 text-center">
-                      <div className="flex h-18 w-18 items-center justify-center rounded-full bg-rose-100/90 text-3xl shadow-sm">
-                        🎨
-                      </div>
-                      <div className="space-y-2">
-                        <p className="text-xl font-semibold text-slate-900">拖拽图片到这里，或点击上传</p>
-                        <p className="mx-auto max-w-md text-sm leading-7 text-slate-600">
-                          支持 JPG / PNG，小于 10MB。建议使用拍摄完整、正面、清晰的标准轮盘照片。
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap justify-center gap-2 text-xs text-slate-500">
-                        <span className="rounded-full border border-white/80 bg-white/80 px-3 py-1.5">
-                          拖拽上传
-                        </span>
-                        <span className="rounded-full border border-white/80 bg-white/80 px-3 py-1.5">
-                          点击选择
-                        </span>
-                        <span className="rounded-full border border-white/80 bg-white/80 px-3 py-1.5">
-                          桌面端粘贴截图
-                        </span>
-                      </div>
-                    </div>
-                  ) : (
+                  {previewUrl ? (
                     <div className="space-y-4 p-4">
                       <div className="overflow-hidden rounded-[1.35rem] border border-white/80 bg-white">
                         <Image
@@ -872,6 +812,7 @@ export function EmotionWheelTool() {
                               </span>
                             </>
                           ) : null}
+
                           {imageDimensions ? (
                             <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5">
                               {imageDimensions}
@@ -889,6 +830,25 @@ export function EmotionWheelTool() {
                         >
                           更换图片
                         </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex min-h-[290px] flex-col items-center justify-center gap-5 px-6 py-10 text-center">
+                      <div className="flex h-18 w-18 items-center justify-center rounded-full bg-rose-100/90 text-3xl shadow-sm">
+                        🎨
+                      </div>
+                      <div className="space-y-2">
+                        <p className="text-xl font-semibold text-slate-900">拖拽图片到这里，或点击上传</p>
+                        <p className="mx-auto max-w-md text-sm leading-7 text-slate-600">
+                          支持 JPG / PNG，小于 10MB。建议使用拍摄完整、正面、清晰的标准轮盘照片。
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap justify-center gap-2 text-xs text-slate-500">
+                        <span className="rounded-full border border-white/80 bg-white/80 px-3 py-1.5">拖拽上传</span>
+                        <span className="rounded-full border border-white/80 bg-white/80 px-3 py-1.5">点击选择</span>
+                        <span className="rounded-full border border-white/80 bg-white/80 px-3 py-1.5">
+                          桌面端粘贴截图
+                        </span>
                       </div>
                     </div>
                   )}
@@ -936,7 +896,7 @@ export function EmotionWheelTool() {
                   <button
                     type="button"
                     disabled={!canAnalyze}
-                    onClick={handleAnalyze}
+                    onClick={() => void handleAnalyze()}
                     className="inline-flex min-w-[196px] items-center justify-center rounded-full bg-slate-900 px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                   >
                     {state === "analyzing" ? "AI 正在温柔解读你的情绪…" : "开始解读"}
@@ -975,7 +935,7 @@ export function EmotionWheelTool() {
                     <button
                       type="button"
                       className="inline-flex items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 px-5 py-3.5 text-sm font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100"
-                      onClick={handleClipboardUpload}
+                      onClick={() => void handleClipboardUpload()}
                     >
                       粘贴截图上传
                     </button>
@@ -1005,7 +965,7 @@ export function EmotionWheelTool() {
                       />
                     </div>
                     <p className="mt-3 text-xs leading-6 text-emerald-900/80">
-                      课程现场多人一起使用时，解读通常在 10-40 秒内完成。期间请不要重复提交。
+                      课堂现场多人一起使用时，解读通常在 10-40 秒内完成。期间请不要重复提交。
                     </p>
                   </div>
                 ) : null}
@@ -1020,8 +980,7 @@ export function EmotionWheelTool() {
                 ) : null}
 
                 <div className="rounded-[1.4rem] border border-slate-200 bg-slate-50/85 px-4 py-4 text-sm leading-7 text-slate-600">
-                  图片只用于本次解读，不做历史记录或云端留存。若你想长期保存，可在报告生成后直接使用“保存为
-                  PDF”导出。
+                  图片只用于本次解读，不做历史记录或云端留存。若你想长期保存，可在报告生成后直接使用“保存为 PDF”导出。
                 </div>
               </div>
             </section>
@@ -1039,33 +998,29 @@ export function EmotionWheelTool() {
                   Emotion Wheel Report
                 </p>
                 <h2 className="mt-2 text-3xl font-semibold text-slate-900 sm:text-[2.1rem]">
-                  你的情绪轮盘解读报告
+                  {report.header.title}
                 </h2>
                 <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-slate-500">
-                  <span>生成时间：{formatDate(report.generatedAt)}</span>
+                  <span>生成时间：{report.header.generate_time}</span>
                   <span className="hidden h-1 w-1 rounded-full bg-slate-300 sm:inline-block" />
-                  <span>昵称：{report.nickname || "匿名"}</span>
+                  <span>昵称：{report.header.nickname || "匿名"}</span>
                 </div>
               </div>
 
               <div className="flex flex-wrap gap-3">
-                {reportSummary ? (
-                  <>
-                    <span className="rounded-full border border-white/80 bg-white/80 px-4 py-2 text-sm text-slate-700">
-                      已识别绘画分区 {reportSummary.paintedCount}
-                    </span>
-                    <span className="rounded-full border border-white/80 bg-white/80 px-4 py-2 text-sm text-slate-700">
-                      留白分区 {reportSummary.blankCount}
-                    </span>
-                    <span className="rounded-full border border-white/80 bg-white/80 px-4 py-2 text-sm text-slate-700">
-                      谨慎判断 {reportSummary.unclearCount}
-                    </span>
-                  </>
-                ) : null}
+                <span className="rounded-full border border-white/80 bg-white/80 px-4 py-2 text-sm text-slate-700">
+                  已识别分区 {report.header.identified_zones}/8
+                </span>
+                <span className="rounded-full border border-white/80 bg-white/80 px-4 py-2 text-sm text-slate-700">
+                  留白分区 {report.header.blank_zones}
+                </span>
+                <span className="rounded-full border border-white/80 bg-white/80 px-4 py-2 text-sm text-slate-700">
+                  谨慎判断 {report.header.caution}
+                </span>
                 <button
                   type="button"
                   className="no-print inline-flex items-center justify-center rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
-                  onClick={handlePrintReport}
+                  onClick={() => void handlePrintReport()}
                 >
                   保存为 PDF
                 </button>
@@ -1091,7 +1046,7 @@ export function EmotionWheelTool() {
                   <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
                     识别提示
                   </p>
-                  <p className="mt-3 text-sm leading-7 text-slate-700">{report.qualityNotice}</p>
+                  <p className="mt-3 text-sm leading-7 text-slate-700">{report.recognition_note}</p>
                 </div>
 
                 <div className="card-break rounded-[1.6rem] border border-amber-100 bg-amber-50/85 p-5 text-sm leading-7 text-amber-900">
@@ -1101,96 +1056,61 @@ export function EmotionWheelTool() {
               </aside>
 
               <div className="space-y-6">
-                <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-                  <article className="card-break rounded-[1.6rem] border border-white/80 bg-[linear-gradient(135deg,rgba(255,245,242,0.95),rgba(255,255,255,0.92))] p-5 shadow-[0_16px_36px_rgba(218,195,174,0.12)]">
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-rose-700">
-                      整体视觉印象
-                    </p>
-                    <p className="mt-4 text-base leading-8 text-slate-700">{report.overallImpression}</p>
-                  </article>
+                <article className="card-break rounded-[1.6rem] border border-white/80 bg-[linear-gradient(135deg,rgba(255,245,242,0.95),rgba(255,255,255,0.92))] p-5 shadow-[0_16px_36px_rgba(218,195,174,0.12)]">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-rose-700">
+                    整体视觉印象
+                  </p>
+                  <p className="mt-4 text-base leading-8 text-slate-700">{report.overall_impression}</p>
+                </article>
 
-                  <article className="card-break rounded-[1.6rem] border border-white/80 bg-[linear-gradient(135deg,rgba(236,253,245,0.95),rgba(255,255,255,0.92))] p-5 shadow-[0_16px_36px_rgba(188,214,200,0.12)]">
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">
-                      中心与整体能量
+                <section className="space-y-4">
+                  <div>
+                    <h3 className="text-2xl font-semibold text-slate-900">重点分区解读</h3>
+                    <p className="mt-1 text-sm text-slate-500">
+                      仅展示已经出现明显绘画痕迹的重点分区，其余留白和不清晰部分通过头部统计与识别提示共同说明。
                     </p>
-                    <p className="mt-4 text-sm leading-8 text-slate-700">{report.centerReflection}</p>
-                  </article>
-                </div>
+                  </div>
 
-                {reportSummary?.painted.length ? (
-                  <section className="space-y-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <h3 className="text-2xl font-semibold text-slate-900">重点分区解读</h3>
-                        <p className="mt-1 text-sm text-slate-500">
-                          优先展示有明显绘画痕迹的分区，便于课堂讨论和对照查看。
-                        </p>
-                      </div>
-                    </div>
+                  {reportSummary?.zones.length ? (
                     <div className="grid gap-4 md:grid-cols-2">
-                      {reportSummary.painted.map((zone) => (
-                        <ZoneCard key={zone.name} zone={zone} />
+                      {reportSummary.zones.map((zone) => (
+                        <ZoneCard key={zone.zone_name} zone={zone} />
                       ))}
                     </div>
-                  </section>
-                ) : null}
-
-                {reportSummary?.quiet.length ? (
-                  <article className="card-break rounded-[1.6rem] border border-white/80 bg-white p-5 shadow-[0_16px_36px_rgba(211,197,180,0.12)]">
-                    <h3 className="text-2xl font-semibold text-slate-900">留白与谨慎区</h3>
-                    <p className="mt-2 text-sm leading-7 text-slate-500">
-                      这些分区可能是留白、尚未触达，或当前照片不足以稳定判断的部分，它们同样值得被温柔看见。
-                    </p>
-                    <div className="mt-5 grid gap-3 lg:grid-cols-2">
-                      {reportSummary.quiet.map((zone) => (
-                        <div
-                          key={zone.name}
-                          className="card-break rounded-[1.25rem] border border-slate-200 bg-slate-50/85 p-4"
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <h4 className="text-base font-semibold text-slate-900">{zone.name}区</h4>
-                            <span
-                              className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${zoneStatusClass(zone.status)}`}
-                            >
-                              {zoneStatusLabel(zone.status)}
-                            </span>
-                          </div>
-                          <p className="mt-3 text-sm leading-7 text-slate-700">{zone.summary}</p>
-                        </div>
-                      ))}
+                  ) : (
+                    <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50/85 p-5 text-sm leading-7 text-slate-600">
+                      这次作品里暂时没有足够明显的重点分区可单独展开，报告会更多从整体画面、关键元素和留白节奏来理解这幅作品。
                     </div>
-                  </article>
-                ) : null}
+                  )}
+                </section>
 
                 <div className="grid gap-6 lg:grid-cols-[0.96fr_1.04fr]">
                   <article className="card-break rounded-[1.6rem] border border-white/80 bg-white p-5 shadow-[0_16px_36px_rgba(211,197,180,0.12)]">
                     <h3 className="text-2xl font-semibold text-slate-900">关键元素分析</h3>
-                    <ul className="mt-4 space-y-3 text-sm leading-7 text-slate-700">
-                      {report.keyElements.map((item) => (
-                        <li key={item} className="flex gap-3">
-                          <span className="mt-2 h-2.5 w-2.5 rounded-full bg-rose-300" />
-                          <span>{item}</span>
-                        </li>
-                      ))}
-                    </ul>
+                    <p className="mt-4 text-sm leading-8 text-slate-700">{report.key_elements}</p>
                   </article>
 
                   <article className="card-break rounded-[1.6rem] border border-white/80 bg-white p-5 shadow-[0_16px_36px_rgba(211,197,180,0.12)]">
                     <h3 className="text-2xl font-semibold text-slate-900">综合情绪状态洞察</h3>
-                    <p className="mt-4 text-sm leading-8 text-slate-700">{report.insight}</p>
+                    <p className="mt-4 text-sm leading-8 text-slate-700">{report.comprehensive_insight}</p>
                   </article>
                 </div>
 
                 <article className="card-break rounded-[1.6rem] border border-emerald-100 bg-[linear-gradient(135deg,rgba(236,253,245,0.95),rgba(255,255,255,0.95))] p-5 shadow-[0_16px_36px_rgba(189,217,201,0.14)]">
                   <h3 className="text-2xl font-semibold text-slate-900">温暖建议与行动提示</h3>
                   <ul className="mt-4 space-y-3 text-sm leading-7 text-slate-700">
-                    {report.suggestions.map((item) => (
+                    {report.action_suggestions.map((item) => (
                       <li key={item} className="flex gap-3">
                         <span className="mt-2 h-2.5 w-2.5 rounded-full bg-emerald-400" />
                         <span>{item}</span>
                       </li>
                     ))}
                   </ul>
+                </article>
+
+                <article className="card-break rounded-[1.6rem] border border-rose-100 bg-[linear-gradient(135deg,rgba(255,247,245,0.98),rgba(255,255,255,0.95))] p-5 shadow-[0_16px_36px_rgba(224,198,188,0.12)]">
+                  <h3 className="text-2xl font-semibold text-slate-900">结尾鼓励</h3>
+                  <p className="mt-4 text-sm leading-8 text-slate-700">{report.closing}</p>
                 </article>
               </div>
             </div>
@@ -1208,7 +1128,7 @@ export function EmotionWheelTool() {
                 <button
                   type="button"
                   className="rounded-full bg-slate-900 px-4 py-2 font-semibold text-white transition hover:bg-slate-800"
-                  onClick={handlePrintReport}
+                  onClick={() => void handlePrintReport()}
                 >
                   导出这份报告
                 </button>

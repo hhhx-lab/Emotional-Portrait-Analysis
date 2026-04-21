@@ -3,10 +3,10 @@ export const WHEEL_ZONES = [
   "温暖",
   "希望",
   "恐惧",
-  "未知",
+  "杂乱",
   "激动",
+  "期待",
   "注视",
-  "忽视",
 ] as const;
 
 export type WheelZoneName = (typeof WHEEL_ZONES)[number];
@@ -22,17 +22,10 @@ export interface FileSummary {
   mimeType: string;
 }
 
-export interface WheelZoneInsight {
-  name: WheelZoneName;
-  status: ZoneStatus;
-  summary: string;
-}
-
 export interface WheelZoneObservation {
   name: WheelZoneName;
   status: ZoneStatus;
   evidence: string;
-  emotionalSignal: string;
 }
 
 export interface EmotionWheelVisualAnalysis {
@@ -40,24 +33,46 @@ export interface EmotionWheelVisualAnalysis {
   confidence: AnalysisConfidence;
   overallScene: string;
   imageQuality: string;
-  centerArea: string;
   zones: WheelZoneObservation[];
   keyElements: string[];
   uncertaintyNotes: string[];
   retakeAdvice: string;
 }
 
-export interface EmotionWheelReport {
-  generatedAt: string;
+export interface EmotionWheelReportHeader {
+  title: string;
+  generate_time: string;
   nickname: string;
-  overallImpression: string;
-  qualityNotice: string;
-  centerReflection: string;
-  zones: WheelZoneInsight[];
-  keyElements: string[];
+  identified_zones: number;
+  blank_zones: number;
+  caution: number;
+}
+
+export interface EmotionWheelReportZoneInsight {
+  zone_name: WheelZoneName;
   insight: string;
-  suggestions: string[];
+}
+
+export interface EmotionWheelReportWriterOutput {
+  recognition_note: string;
+  overall_impression: string;
+  zone_insights: EmotionWheelReportZoneInsight[];
+  key_elements: string;
+  comprehensive_insight: string;
+  action_suggestions: string[];
+  closing: string;
+}
+
+export interface EmotionWheelReport {
+  header: EmotionWheelReportHeader;
+  recognition_note: string;
   disclaimer: string;
+  overall_impression: string;
+  zone_insights: EmotionWheelReportZoneInsight[];
+  key_elements: string;
+  comprehensive_insight: string;
+  action_suggestions: string[];
+  closing: string;
 }
 
 export interface ErrorResponse {

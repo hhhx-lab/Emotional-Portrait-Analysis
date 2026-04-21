@@ -1,0 +1,4 @@
+interface:
+  display_name: "Emotion Wheel Grok Report"
+  short_description: "Warm structured writing skill for the final emotion-wheel report"
+  default_prompt: "Use $emotion-wheel-grok-report to write the final emotion-wheel report from Gemini observation JSON, following the SOP structure and non-diagnostic writing rules."

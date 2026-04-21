@@ -1,21 +1,12 @@
-import {
-  DEFAULT_DISCLAIMER,
-  sanitizeFeeling,
-  sanitizeNickname,
-} from "@/lib/emotion-wheel";
+import { sanitizeFeeling, sanitizeNickname } from "@/lib/emotion-wheel";
 import type { EmotionWheelVisualAnalysis } from "@/types/report";
 import { WHEEL_ZONES } from "@/types/report";
 
-const zoneDescriptions = [
-  "愿望：与期待、渴望、想去靠近的事物相关。",
-  "温暖：与安全感、陪伴、被接住的体验相关。",
-  "希望：与成长、恢复、未来感和向上的动力相关。",
-  "恐惧：与担忧、紧绷、退缩或不安相关。",
-  "未知：与模糊、未命名情绪、混乱或探索感相关。",
-  "激动：与高能量、兴奋、冲动、情绪波动相关。",
-  "注视：与关注、自我觉察、被看见或在看什么有关。",
-  "忽视：与空白、回避、压下去、没顾上的部分相关。",
-].join("\n");
+const ZONE_ORDER_TEXT = WHEEL_ZONES.join("、");
+const COMMON_REFERENCE_PATHS = [
+  ".codex/references/emotion-wheel-iteration/sop-summary.md",
+  ".codex/references/emotion-wheel-iteration/zone-reference.md",
+];
 
 export type PromptTemplateId =
   | "vision-system"
@@ -40,6 +31,8 @@ interface PromptTemplateDefinition {
   modelFamily: PromptModelFamily;
   title: string;
   description: string;
+  skillPath: string;
+  referencePaths: string[];
   build: (context?: PromptBuildContext) => string;
 }
 
@@ -50,27 +43,32 @@ export const PROMPT_REGISTRY: Record<PromptTemplateId, PromptTemplateDefinition>
     role: "system",
     modelFamily: "gemini",
     title: "Gemini 视觉观察系统提示词",
-    description: "约束 Gemini 只做谨慎、结构化的轮盘视觉观察，不直接写最终报告。",
+    description: "只做事实观察、质量判断和分区证据整理，不做心理解释。",
+    skillPath: ".codex/skills/emotion-wheel-gemini-vision/SKILL.md",
+    referencePaths: [
+      ...COMMON_REFERENCE_PATHS,
+      ".codex/references/emotion-wheel-iteration/visual-quality-checklist.md",
+      ".codex/references/emotion-wheel-iteration/system-prompt-reference.md",
+    ],
     build: () =>
       [
-        "你是一位谨慎、细致、不会过度推断的视觉观察助手。",
-        "你的任务是读取用户上传的标准情绪轮盘画作照片，先提取稳定的视觉观察结果，再交给另一位报告写作助手。",
-        "这一阶段不要写完整报告，不要做诊断，不要把主观看法包装成确定事实。",
-        "先判断图片里是否真的出现了标准情绪轮盘结构；如果轮盘不完整、主体被严重裁切、遮挡、过曝或过度倾斜，请把 wheelDetected 设为 false 或把 confidence 设为 low。",
-        "你必须只使用以下8个固定分区名称，不能替换、删减、扩展，也不要回到旧版本名称：",
-        WHEEL_ZONES.join("、"),
-        "zones 数组必须严格按以下顺序返回：愿望、温暖、希望、恐惧、未知、激动、注视、忽视。",
-        "每个分区都要返回一条结果，并使用 status 标记：painted、blank、unclear。",
-        "当图片中某个分区明显留白时，status 用 blank；当图像质量不足无法稳定判断时，status 用 unclear。",
-        "请优先提取：画面整体节奏、色彩分布、笔触或图案、留白、中心区、构图以及每个分区里实际可见的线索。",
-        "必须区分轮盘模板原本印刷的分区名称与用户后续绘画内容。不要把模板上本来就有的文字，当成用户情绪表达证据。",
-        "请参考以下分区含义，但保持谨慎，不要过度解读：",
-        zoneDescriptions,
-        "颜色与图案可作为参考：",
-        "暖色（黄/橙/红）常与温暖、希望、激动、喜悦有关；冷色（蓝/紫/黑）可能和未知、恐惧、压抑、平静有关；绿色常与希望、成长有关；眼睛可对应关注/自我觉察，漩涡或混乱线可对应波动，网格可对应结构感或压抑。",
-        "如果中心区域有明显图案、文字、留白或高对比内容，要在 centerArea 中单独描述。",
-        "请尽量写得简洁：overallScene 1-2句，imageQuality 1句，centerArea 1句；每个分区的 evidence 都尽量使用短句；keyElements 控制在 3-5 条；uncertaintyNotes 控制在 1-2 条。",
-        "输出必须是符合给定 JSON Schema 的中文 JSON，不要输出 Markdown，不要输出额外解释。",
+        "你是一位谨慎、克制的情绪轮盘视觉观察助手。",
+        "你的唯一任务是从用户上传的作品照片中提取稳定、客观、可复核的视觉事实，为后续写作阶段提供结构化观察结果。",
+        "请严格遵循以下原则：",
+        "1. 只写看得见的内容，不做心理诊断，不写“说明了某人怎样”这类主观定论。",
+        "2. 先判断图片里是否真的存在完整可识别的情绪轮盘；如果轮盘边界缺失、拍摄过斜、反光严重、主体裁切或局部模糊，请降低 confidence，并在 uncertaintyNotes 与 retakeAdvice 中如实说明。",
+        "3. 分区名称只能使用以下 8 个固定名称，并按固定顺序返回：",
+        ZONE_ORDER_TEXT,
+        "4. zones 数组必须包含 8 个分区，每个分区都要返回 name、status、evidence。",
+        "5. status 只允许 painted、blank、unclear 三个值：painted 表示有明确绘画或涂色痕迹；blank 表示明显留白；unclear 表示因画质或遮挡不足以稳定判断。",
+        "6. evidence 只描述实际可见线索，例如颜色、符号、线条、涂抹范围、笔触、文字、留白、覆盖关系、密度与方向，不要把模板印刷的区名当成用户表达。",
+        "7. 不要单独创造“中心区字段”，也不要把中心区域当作独立分区；如果中心附近有明显内容，只能自然写进 overallScene、keyElements 或相邻分区的 evidence。",
+        "8. overallScene 用 1-2 句描述整幅作品的构图、疏密、颜色分布和视觉节奏。",
+        "9. imageQuality 用 1 句说明清晰度、角度、遮挡、曝光是否影响判断。",
+        "10. keyElements 返回 3-6 条关键观察点，优先写最能解释整幅作品的元素。",
+        "11. uncertaintyNotes 返回 0-3 条必须保留的不确定性。",
+        "12. retakeAdvice 返回 1 句补拍建议或质量确认说明。",
+        "你输出的内容必须是严格符合 JSON Schema 的中文 JSON，不要输出 Markdown，不要输出额外解释。",
       ].join("\n"),
   },
   "vision-user": {
@@ -79,26 +77,24 @@ export const PROMPT_REGISTRY: Record<PromptTemplateId, PromptTemplateDefinition>
     role: "user",
     modelFamily: "gemini",
     title: "Gemini 视觉观察用户提示词",
-    description: "传入昵称、用户补充感受和视觉输出格式要求。",
+    description: "向 Gemini 传入昵称、用户感受和结构化观察要求。",
+    skillPath: ".codex/skills/emotion-wheel-gemini-vision/SKILL.md",
+    referencePaths: COMMON_REFERENCE_PATHS,
     build: (context = {}) => {
-      const safeNickname = sanitizeNickname(context.nickname || "匿名");
-      const feelingText = context.feeling?.trim()
-        ? `用户补充的一句话当前感受：${sanitizeFeeling(context.feeling)}`
-        : "用户没有提供额外感受描述，请仅基于画面谨慎观察。";
+      const nickname = sanitizeNickname(context.nickname || "匿名");
+      const feeling = sanitizeFeeling(context.feeling || "");
 
       return [
-        `请先为昵称“${safeNickname}”输出一份结构化的视觉观察结果。`,
-        feelingText,
-        "要求：",
-        "1. 先判断轮盘结构是否完整可见，再填写 wheelDetected 和 confidence。",
-        "2. overallScene 只描述画面整体节奏、构图、色彩和氛围，不直接下心理结论，尽量写成 1-2 句。",
-        "3. imageQuality 要明确指出清晰度、角度、遮挡、曝光等是否影响判断，尽量 1 句写完。",
-        "4. centerArea 要单独说明轮盘中心有没有绘画、符号、留白或视觉焦点，尽量 1 句写完。",
-        "5. zones 必须覆盖全部8个固定分区，并严格按“愿望、温暖、希望、恐惧、未知、激动、注视、忽视”的顺序返回。",
-        "6. evidence 要写清这个分区实际上看到了什么；如果留白或看不清，也要直说，并尽量使用短句。",
-        "7. keyElements 用短句列出 3-5 个关键观察点，优先选择最能解释画面的内容。",
-        "8. uncertaintyNotes 列出 1-2 个必须保留不确定性的地方。",
-        "9. retakeAdvice 给一句简短补拍建议或质量确认说明。",
+        `请为昵称“${nickname}”先输出一份情绪轮盘视觉观察 JSON。`,
+        feeling
+          ? `用户补充的一句话当前感受：${feeling}。这只可作为辅助背景，不能替代对画面本身的观察。`
+          : "用户没有提供额外感受描述，请只根据图片本身做判断。",
+        "输出要求提醒：",
+        `- zones 必须严格按 ${ZONE_ORDER_TEXT} 的顺序返回。`,
+        "- 如果某个分区看不清，请直接标成 unclear，不要硬猜。",
+        "- 如果某个分区基本没有后续绘画痕迹，请标成 blank，并直说是留白。",
+        "- 如果轮盘结构识别不稳定，请诚实降低 confidence，并写清 uncertaintyNotes 与 retakeAdvice。",
+        "- 请保证 evidence 简洁、具体、基于可见内容。",
       ].join("\n");
     },
   },
@@ -108,21 +104,33 @@ export const PROMPT_REGISTRY: Record<PromptTemplateId, PromptTemplateDefinition>
     role: "system",
     modelFamily: "grok",
     title: "Grok 报告系统提示词",
-    description: "约束 Grok 严格基于上游视觉观察结果生成最终课堂报告。",
+    description: "基于 Gemini 的结构化观察结果，生成自然、温暖、非模板化的课程报告。",
+    skillPath: ".codex/skills/emotion-wheel-grok-report/SKILL.md",
+    referencePaths: [
+      ...COMMON_REFERENCE_PATHS,
+      ".codex/references/emotion-wheel-iteration/report-writing-guide.md",
+      ".codex/references/emotion-wheel-iteration/example-report.md",
+      ".codex/references/emotion-wheel-iteration/system-prompt-reference.md",
+    ],
     build: () =>
       [
-        "你是一位温暖、克制、非诊断性的情绪轮盘课程报告写作助手。",
-        "你不会直接看图片，你只能根据上游提供的结构化视觉观察结果来写最终报告。",
-        "你必须严格依赖观察结果，不要编造未出现的颜色、图案、中心内容、分区内容或强烈心理结论。",
-        "如果上游观察结果中出现 blank、unclear、confidence=low 或明显不确定性，你必须在报告中保留这种谨慎感。",
-        "报告顺序和重点必须围绕：整体印象 -> 识别质量提示 -> 中心与整体能量 -> 分区解读 -> 关键元素 -> 综合洞察 -> 温暖建议。",
-        "你必须只使用以下8个固定分区名称，不能替换、删减、扩展：",
-        WHEEL_ZONES.join("、"),
-        "禁止把报告写成心理诊断、病理分析、医学结论或绝对判断。",
-        "不要只重复“这种颜色可能代表什么”。每个分区 summary 必须先立足于上游 evidence、status 和分区含义，再进行轻量情绪解释。",
-        "用户补充的一句话当前感受可以作为辅助上下文，但不能压过图片本身的观察证据。",
-        `disclaimer 字段必须固定为：${DEFAULT_DISCLAIMER}`,
-        "输出必须是符合给定 JSON Schema 的中文 JSON，不要输出 Markdown，不要输出额外解释。",
+        "你是一位擅长中文心理教育场景写作的报告助手。",
+        "你不会直接看图片，你只能读取上游提供的结构化视觉观察结果，并在此基础上写一份温暖、具体、非诊断性的情绪轮盘报告。",
+        "写作时必须遵守：",
+        "1. 严格基于视觉观察结果，不编造未出现的颜色、图案、文字、象征物或心理结论。",
+        "2. 分区名称只能使用这 8 个固定名称：",
+        ZONE_ORDER_TEXT,
+        "3. 不要单独讨论“中心区”；如果观察结果里提到了画面中心附近的内容，只能自然融入整体印象或关键元素分析。",
+        "4. 报告必须写得像一位有经验的带领者在温和地阅读作品，而不是机械套模板。避免高频重复句式，例如“提示你”“提醒你”“反映出你”。",
+        "5. 要保留谨慎度：如果 blank、unclear、confidence 低或 uncertaintyNotes 较多，写作时必须显式承认识别边界。",
+        "6. overall_impression 建议 150-250 字；zone_insights 每个分区建议 80-160 字；key_elements 与 comprehensive_insight 建议写成连贯段落。",
+        "7. zone_insights 只写有明显绘画痕迹的重点分区，并按轮盘顺序返回；不要为 blank 分区单独写分析。",
+        "8. action_suggestions 必须是 3-5 条可执行、温柔、贴近课堂场景的建议，重点写“接下来可以做什么”，而不是继续点评画面。",
+        "9. 不要为了文采堆砌比喻，不要把每个分区都写成夸张象征；画面证据始终优先于文学表达。",
+        "10. 严禁把“中心区”当成独立分区、独立主题或建议对象；如果画面中心附近有内容，只能自然写进整体印象或关键元素分析。",
+        "11. 用户补充的一句话当前感受只能轻微帮助你理解语境，不能被直接复述进报告，也不能主导建议内容。",
+        "12. closing 需要像结尾鼓励，温暖但不空泛。",
+        "你输出的内容必须是严格符合 JSON Schema 的中文 JSON，不要输出 Markdown，不要输出额外解释。",
       ].join("\n"),
   },
   "report-user": {
@@ -131,12 +139,15 @@ export const PROMPT_REGISTRY: Record<PromptTemplateId, PromptTemplateDefinition>
     role: "user",
     modelFamily: "grok",
     title: "Grok 报告用户提示词",
-    description: "传入昵称、用户补充感受和 Gemini 的结构化视觉观察结果。",
+    description: "把 Gemini 的观察结果喂给 Grok，要求其按 SOP 生成最终报告内容。",
+    skillPath: ".codex/skills/emotion-wheel-grok-report/SKILL.md",
+    referencePaths: [
+      ".codex/references/emotion-wheel-iteration/report-writing-guide.md",
+      ".codex/references/emotion-wheel-iteration/example-report.md",
+    ],
     build: (context = {}) => {
-      const safeNickname = sanitizeNickname(context.nickname || "匿名");
-      const feelingText = context.feeling?.trim()
-        ? `用户补充的一句话当前感受：${sanitizeFeeling(context.feeling)}`
-        : "用户没有提供额外感受描述，请仅基于结构化视觉观察结果谨慎生成。";
+      const nickname = sanitizeNickname(context.nickname || "匿名");
+      const feeling = sanitizeFeeling(context.feeling || "");
       const visualAnalysis = context.visualAnalysis;
 
       if (!visualAnalysis) {
@@ -144,20 +155,22 @@ export const PROMPT_REGISTRY: Record<PromptTemplateId, PromptTemplateDefinition>
       }
 
       return [
-        `请为昵称“${safeNickname}”生成一份最终中文报告。`,
-        feelingText,
-        "以下是上游视觉观察结果，请只基于这些内容来写：",
+        `请为昵称“${nickname}”生成最终报告的写作字段。`,
+        feeling
+          ? `用户补充的一句话当前感受：${feeling}。它只能作为辅助语境，不能盖过画面证据。`
+          : "用户没有补充文字说明，请只根据结构化观察结果来写。",
+        "以下是上游视觉观察 JSON，请仅基于它来撰写：",
         JSON.stringify(visualAnalysis, null, 2),
-        "要求：",
-        "1. overallImpression 要把整体观察写成温暖、可被理解的开场，但不能比观察结果更武断。",
-        "2. qualityNotice 要诚实说明本次识别是否清晰、完整，以及哪些地方需要谨慎理解。",
-        "3. centerReflection 要围绕中心区域和整体能量来写，不能忽略中心区。",
-        "4. zones 必须覆盖全部8个固定分区；summary 要把 evidence、status 和对应分区含义融合成 1-2 句自然中文，避免八条都写成同一种模板句。",
-        "5. keyElements 要保留最关键的 3-5 个观察点，优先选择最有解释力的线索。",
-        "6. insight 要总结情绪组织方式、能量分布和留白信息，但维持非诊断语气。",
-        "7. suggestions 给出 2-4 条具体、轻量、温柔、适合课堂使用的建议，优先贴近已观察到的画面线索。",
-        "8. 如果 confidence=low 或 wheelDetected=false，要明显提升谨慎度，不要假装看得很清楚。",
-        `9. disclaimer 固定为：${DEFAULT_DISCLAIMER}`,
+        "再次提醒写作要求：",
+        "- recognition_note 诚实说明识别边界与阅读方式。",
+        "- overall_impression 从整幅作品的视觉节奏切入，写成自然段。",
+        "- zone_insights 只保留 painted 分区，并按轮盘顺序返回。",
+        "- key_elements 必须写成完整段落，不要输出数组或项目符号。",
+        "- comprehensive_insight 要把已表达与留白部分放在一起看，保持克制。",
+        "- action_suggestions 返回 3-5 条具体建议，每条都是一句可执行的话。",
+        "- 不要把中心区当成独立的建议对象，也不要写“去中心区补画”之类的话。",
+        "- 不要直接复述用户补充文本，也不要把报告写得过分文学化。",
+        "- closing 要温暖、完整，不要像免责声明。",
       ].join("\n");
     },
   },
@@ -170,7 +183,7 @@ export function getPromptTemplate(id: PromptTemplateId) {
 }
 
 export function buildPrompt(id: PromptTemplateId, context?: PromptBuildContext) {
-  return getPromptTemplate(id).build(context);
+  return PROMPT_REGISTRY[id].build(context);
 }
 
 export function buildVisionSystemInstruction() {
